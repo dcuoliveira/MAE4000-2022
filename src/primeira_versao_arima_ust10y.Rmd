@@ -1,0 +1,65 @@
+---
+title: "Modelo ARIMA"
+output: html_notebook
+---
+
+Primeiro vamos carregar os pacotes desejados:
+
+```{r}
+library("dplyr")
+library("tidyr")
+library("readxl")
+library("data.table")
+library("here")
+library("ggplot2")
+library("reshape2")
+library("lubridate")
+```
+
+Uma vez com os pacotes carregados, podemos agora carregar e plotar os dados desejados:
+
+```{r}
+dados <- read_excel(here("src/data/curva_juros_nominal_us.xlsx")) %>% as.data.table()
+```
+
+Os dados consistêm de alguns vértices da curva de juros nominal dos Estados Unidos. Os vérties do juros nominal de cinco (USGG5YR) e dez (USGG10YR) anos possuem observações desde 1970, já os vértices de dois (USGG2YR) e 30 (USGG30YR) anos começam em 1977.
+
+```{r}
+head(dados)
+```
+
+
+```{r}
+head(dados %>% drop_na())
+```
+No código abaixo, podemos ver o gráfico dos vértices ao longo do tempo:
+
+ATENÇÃO, CHECAR DADOS PARA O JUROS DE 2 E 30 ANOS. ESTÃO ESTRANHOS!!
+
+```{r}
+dados$date = ymd(dados$date)
+melt_dados <- melt(dados %>% drop_na(), id="date")
+ggplot(melt_dados, aes(x=date, y=value, colour=variable, group=variable)) + geom_line()
+```
+No que se segue, analisaremos o véritce de dez anos.
+
+```{r}
+ggplot(melt_dados %>% filter(variable=="USGG10YR Index"), aes(x=date, y=value, colour=variable, group=variable)) + geom_line()
+```
+Começamos nossa análise testando a hipótese de estacionariedade da série em questão. Para tanto, 
+
+$$
+
+1) \mathbb{E}[u_t] = 0; \\
+2) Var(u_t) = \sigma^2; \\
+3) u_t \sim N(0, \sigma^2); \\
+
+$$
+
+```{r}
+ggplot(melt_dados %>% filter(variable=="USGG10YR Index") %>% mutate(value=c(NA, diff(value))),
+       aes(x=date, y=value,
+           colour=variable,
+           group=variable)) + geom_line()
+```
+
