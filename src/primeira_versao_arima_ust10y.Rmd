@@ -6,6 +6,7 @@ output: html_notebook
 Primeiro vamos carregar os pacotes desejados:
 
 ```{r}
+rm(list=ls())
 library("dplyr")
 library("tidyr")
 library("readxl")
@@ -14,12 +15,17 @@ library("here")
 library("ggplot2")
 library("reshape2")
 library("lubridate")
+library("readr")
+library("tseries")
 ```
 
 Uma vez com os pacotes carregados, podemos agora carregar e plotar os dados desejados:
 
 ```{r}
-dados <- read_excel(here("src/data/curva_juros_nominal_us.xlsx")) %>% as.data.table()
+dados <- read_delim(here("src", "data", "curva_juros_nominal_us.txt"),
+                    delim = "\t",
+                    escape_double = FALSE, 
+                    trim_ws = TRUE) %>% as.data.table() %>% rename(date=Dates)
 ```
 
 Os dados consistêm de alguns vértices da curva de juros nominal dos Estados Unidos. Os vérties do juros nominal de cinco (USGG5YR) e dez (USGG10YR) anos possuem observações desde 1970, já os vértices de dois (USGG2YR) e 30 (USGG30YR) anos começam em 1977.
@@ -43,23 +49,47 @@ ggplot(melt_dados, aes(x=date, y=value, colour=variable, group=variable)) + geom
 ```
 No que se segue, analisaremos o véritce de dez anos.
 
+Começamos nossa análise testando a hipótese de estacionariedade da série em questão. Para tanto, usaremos a definição de Shumway e Stoffer (2016) que caracteriza um processo estacionário da seguinte forma:
+
+>> 1) A função de média do processo não depende de $t$
+>> 2) A função de autocovariância do processo depende do tempo somente através da diferença de $|s - t|$
+
+A inspeção visual da série em questão parece indicar que a média da série varia no tempo. Apesar disso, usaremos dois testes de hipótese para identificar raiz unitária no processo, sendo eles o deste de Dickey-Fuller e o teste de Phillips–Perron.
+
+
 ```{r}
-ggplot(melt_dados %>% filter(variable=="USGG10YR Index"), aes(x=date, y=value, colour=variable, group=variable)) + geom_line()
+target_data = dados %>% select(date, `USGG10YR Index`)
+colnames(target_data) = c("date", "USGG10YR")
+
+ggplot(target_data, aes(x=date, y=USGG10YR)) + geom_line() + xlab("")
 ```
-Começamos nossa análise testando a hipótese de estacionariedade da série em questão. Para tanto, 
 
-$$
-
-1) \mathbb{E}[u_t] = 0; \\
-2) Var(u_t) = \sigma^2; \\
-3) u_t \sim N(0, \sigma^2); \\
-
-$$
+Como podemos ver, ambos os testes não rejeitam a hipótese nula de raiz unitária, portando precisaremos aplicar alguma trasformação nos dados. 
 
 ```{r}
-ggplot(melt_dados %>% filter(variable=="USGG10YR Index") %>% mutate(value=c(NA, diff(value))),
-       aes(x=date, y=value,
-           colour=variable,
-           group=variable)) + geom_line()
+adf.test(target_data %>% select(USGG10YR) %>% as.ts())
+```
+
+```{r}
+PP.test(target_data %>% select(USGG10YR) %>% as.ts())
+```
+
+Uma alternativa é aplicar a primeira diferença na série. Podemos notar que ao aplicarmos a primeira diferença, ambos os testes rejeitam a hipótese de raiz unitária do processo diferenciado. Deste modo, seguiremos a análise com o processo em primeira diferença.
+
+```{r}
+adf.test(target_data %>% select(USGG10YR) %>% as.ts() %>% diff())
+```
+
+```{r}
+PP.test(target_data %>% select(USGG10YR) %>% as.ts() %>% diff())
+```
+
+
+```{r}
+target_data = dados %>% select(date, `USGG10YR Index`)
+colnames(target_data) = c("date", "USGG10YR")
+diff_target_data = target_data %>% mutate(USGG10YR_diff=diff(c(NA, USGG10YR))) %>% select(date, USGG10YR_diff)
+
+ggplot(diff_target_data, aes(x=date, y=USGG10YR_diff)) + geom_line() + xlab("")
 ```
 
