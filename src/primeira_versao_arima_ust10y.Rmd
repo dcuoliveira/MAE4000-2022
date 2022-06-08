@@ -166,14 +166,6 @@ min(information_df$AIC)
 min(information_df$BIC)
 ```
 
-
-```{r}
-
-arima_aic = arima(USGG10YR_diff_ts, order=c(4, 0, 4))
-arima_bic = arima(USGG10YR_diff_ts, order=c(1, 0, 1))
-
-```
-
 ```{r}
 
 auto_arima <- auto.arima(y = USGG10YR_diff_ts,
@@ -184,7 +176,22 @@ auto_arima <- auto.arima(y = USGG10YR_diff_ts,
 summary(auto_arima)
 ```
 
-Uma vez com os modelos em mãos, avaliaremos abaixo os modelos ajustados, isto é, avaliaremos as estatísticas de ajuste de modelos bem como o resíduo destes.
+```{r}
+
+arima_aic <- arima(USGG10YR_diff_ts, order=c(4, 0, 4))
+arima_bic <- arima(USGG10YR_diff_ts, order=c(1, 0, 1))
+
+```
+
+
+
+Uma vez com os modelos em mãos, avaliaremos abaixo os modelos ajustados, isto é, avaliaremos as estatísticas de ajuste de modelos bem como o resíduo destes. Para fins de simplificação, chamaremos o modelo ARIMA(4, 1, 4) de modelo A e o modelo ARIMA (1, 1, 1) de modelo B. 
+
+Notamos que tanto em termos de log-verossimilhança quanto AIC, o modelo A tem o melhor ajuste. Além disso, ambos os resíduos apresentam problemas. Os resíduos de ambas as séries rejeitam fortemente a hipótese nula de normalidade dos dados. Outro ponto de atenção é que ambos os resíduos apresentam lags significativos na ACF.
+
+(...)
+
+
 
 ```{r}
 
@@ -194,7 +201,9 @@ resid_aic$date = diff_target_data$date
 resid_aic = resid_aic %>% select(date, everything())
 
 summary(arima_aic)
+shapiro.test(resid_aic$AIC_resid)
 ggplot(resid_aic, aes(x=date, y=AIC_resid)) + geom_line() + xlab("")
+ggAcf(resid_aic$AIC_resid)
 
 ```
 
@@ -207,12 +216,65 @@ resid_bic$date = diff_target_data$date
 resid_bic = resid_bic %>% select(date, everything())
 
 summary(arima_bic)
+shapiro.test(resid_bic$BIC_resid)
 ggplot(resid_bic, aes(x=date, y=BIC_resid)) + geom_line() + xlab("")
+ggAcf(resid_bic$BIC_resid)
+
+```
+Como forma de melhorar as propriedades dos modelos apresentados acima, utilizaremos duas variáveis consideradas relevantes na literatura economica, a expectativa de inflação e atividade representada pela mediana das projeções dos principais economistas de mercado para estas variáveis.
+
+Abaixo plotaremos essas variáveis:
+
+```{r}
+
+expectations <- read_delim(here("src", "data", "gdp_cpi_expect_us.txt"),
+                           delim = "\t",
+                           escape_double = FALSE, 
+                           trim_ws = TRUE) %>% as.data.table()
+
+
+weekly_expectations = expectations %>% mutate(date=ymd(date)) %>% pad() %>%
+  fill(ECGDUS, ECPIUS, .direction=c("down")) %>%
+  mutate(weekday=weekdays(date, abbreviate = TRUE)) %>% filter(weekday=='Sex'|weekday=='Fri') %>%
+  select(-weekday)
+
+melt_expectations <- melt(weekly_expectations %>% drop_na(), id="date")
+ggplot(melt_expectations, aes(x=date, y=value, colour=variable, group=variable)) + geom_line()
+
+```
+
+Novamente notamos que as variáveis são não estacionárias, então aplicaremos a primeira diferença nestas para conseguirmos utilizar na modelagem.
+
+```{r}
+
+diff_expectations = expectations %>% mutate(ECGDUS=c(NA, diff(ECGDUS)), ECPIUS=c(NA, diff(ECPIUS))) %>%
+  select(date, ECGDUS, ECPIUS) %>% drop_na()
+
+ggplot(melt(diff_expectations %>% drop_na(), id="date"),
+       aes(x=date, y=value, colour=variable, group=variable)) + geom_line()
 
 ```
 
 
 
+```{r}
+
+all_data = merge(diff_target_data, diff_expectations, "date") %>% as.data.table() %>% drop_na()
+
+auto_arimax <- auto.arima(y = all_data %>% select(USGG10YR_diff) %>% as.ts(),
+                          max.p = 10,
+                          max.q = 10,
+                          xreg = all_data %>% select(ECGDUS, ECPIUS) %>% as.ts(),
+                          allowmean = TRUE)
+summary(auto_arimax)
+
+```
+
+## FORECAST
+
+```{r}
+
+```
 
 
 
