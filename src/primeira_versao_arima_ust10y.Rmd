@@ -17,35 +17,48 @@ library("reshape2")
 library("lubridate")
 library("readr")
 library("tseries")
+library("fpp2")
+library("padr")
 ```
 
 Uma vez com os pacotes carregados, podemos agora carregar e plotar os dados desejados:
 
 ```{r}
+
 dados <- read_delim(here("src", "data", "curva_juros_nominal_us.txt"),
                     delim = "\t",
                     escape_double = FALSE, 
                     trim_ws = TRUE) %>% as.data.table() %>% rename(date=Dates)
+
+
+weekly_dados = dados %>% mutate(date=ymd(date)) %>% pad() %>%
+  fill(`USGG2YR Index`, `USGG5YR Index`, `USGG10YR Index`, `USGG30YR Index`, .direction=c("down")) %>%
+  mutate(weekday=weekdays(date, abbreviate = TRUE)) %>% filter(weekday=='Sex'|weekday=='Fri') %>%
+  select(-weekday)
+
 ```
 
 Os dados consistêm de alguns vértices da curva de juros nominal dos Estados Unidos. Os vérties do juros nominal de cinco (USGG5YR) e dez (USGG10YR) anos possuem observações desde 1970, já os vértices de dois (USGG2YR) e 30 (USGG30YR) anos começam em 1977.
 
 ```{r}
-head(dados)
+head(weekly_dados)
 ```
 
 
 ```{r}
+
 head(dados %>% drop_na())
+
 ```
 No código abaixo, podemos ver o gráfico dos vértices ao longo do tempo:
 
 ATENÇÃO, CHECAR DADOS PARA O JUROS DE 2 E 30 ANOS. ESTÃO ESTRANHOS!!
 
 ```{r}
-dados$date = ymd(dados$date)
-melt_dados <- melt(dados %>% drop_na(), id="date")
+
+melt_dados <- melt(weekly_dados %>% drop_na(), id="date")
 ggplot(melt_dados, aes(x=date, y=value, colour=variable, group=variable)) + geom_line()
+
 ```
 No que se segue, analisaremos o véritce de dez anos.
 
@@ -58,7 +71,7 @@ A inspeção visual da série em questão parece indicar que a média da série 
 
 
 ```{r}
-target_data = dados %>% select(date, `USGG10YR Index`)
+target_data = weekly_dados %>% select(date, `USGG10YR Index`)
 colnames(target_data) = c("date", "USGG10YR")
 
 ggplot(target_data, aes(x=date, y=USGG10YR)) + geom_line() + xlab("")
@@ -71,25 +84,136 @@ adf.test(target_data %>% select(USGG10YR) %>% as.ts())
 ```
 
 ```{r}
+
 PP.test(target_data %>% select(USGG10YR) %>% as.ts())
+
 ```
 
 Uma alternativa é aplicar a primeira diferença na série. Podemos notar que ao aplicarmos a primeira diferença, ambos os testes rejeitam a hipótese de raiz unitária do processo diferenciado. Deste modo, seguiremos a análise com o processo em primeira diferença.
 
 ```{r}
+
 adf.test(target_data %>% select(USGG10YR) %>% as.ts() %>% diff())
+
 ```
 
 ```{r}
+
 PP.test(target_data %>% select(USGG10YR) %>% as.ts() %>% diff())
+
 ```
 
 
 ```{r}
-target_data = dados %>% select(date, `USGG10YR Index`)
-colnames(target_data) = c("date", "USGG10YR")
-diff_target_data = target_data %>% mutate(USGG10YR_diff=diff(c(NA, USGG10YR))) %>% select(date, USGG10YR_diff)
+
+diff_target_data = target_data %>% mutate(USGG10YR_diff=diff(c(NA, USGG10YR))) %>%
+  select(date, USGG10YR_diff) %>% drop_na()
+
+USGG10YR_diff_ts = as.ts(diff_target_data$USGG10YR_diff)
 
 ggplot(diff_target_data, aes(x=date, y=USGG10YR_diff)) + geom_line() + xlab("")
+
 ```
+Como primeira forma de identificar o modelo ideal para a série do juros de 10 anos, seguiremos Shumway e Stoffer (2016) e usaremos a função de autocorrelação (ACF) e autocorrelação parcial (PACF) para identificar os parâmetros de um modelo ARMA(p,q).
+
+(NÃO ESTOU SEGURO DESSA PARTE)
+
+Podemos notar que ambas ACF e PACF indicam que o modelo ARMA(4,0) pode ser um bom candidato para modelar o processo gerador de dados.
+
+
+```{r}
+
+ggAcf(USGG10YR_diff_ts)
+
+```
+
+
+```{r}
+
+ggPacf(USGG10YR_diff_ts)
+
+```
+
+Uma vez com o primeiro especificação de modelo em mãos, usaremos o critério de informação de Akaike (AIC) e bayesiano (BIC) para identifcar se existe um modelo mais parsimonioso para o processo gerador de dados. Avaliaremos ambos os critérios para ARMA(p, q), onde $p \in {1, 2, 3, 4}$ e $q=0$.
+
+Notamos que para o critério AIC, o modelo escolhido é um ARIMA(4, 0, 4), já para o critério BIC o modelo escolhido é o ARMA(1, 0, 1). Estimaremos os dois modelos e continuaremos a análise a partir deles.
+
+Como terceira forma de escolher o modelo ARMA que melhor se ajusta aos dados, utilizamos a função "auto.arima" do pacote "forecast". Esta função retorna o melhor modelo ARIMA de acordo com o critério de informação disponível. Notamos que o modelo escolhido é consistente com o critério AIC feito anteriormente, um ARIMA(4,0,4).
+
+```{r}
+
+aic = list()
+bic = list()
+q = 0
+
+for (p in 1:4){
+  for (q in 1:4){
+    tmp_arma = arima(USGG10YR_diff_ts, order=c(p, 0, q))
+  
+    aic[[paste0(p, "_", q)]] = AIC(tmp_arma)
+    bic[[paste0(p, "_", q)]] = BIC(tmp_arma) 
+  }
+}
+
+information_df = cbind(do.call("rbind", aic) %>% as.data.table(),
+                       do.call("rbind", bic) %>% as.data.table())
+colnames(information_df) = c("AIC", "BIC")
+information_df$models = names(aic)
+information_df = information_df %>% select(models, everything())
+
+information_df
+min(information_df$AIC)
+min(information_df$BIC)
+```
+
+
+```{r}
+
+arima_aic = arima(USGG10YR_diff_ts, order=c(4, 0, 4))
+arima_bic = arima(USGG10YR_diff_ts, order=c(1, 0, 1))
+
+```
+
+```{r}
+
+auto_arima <- auto.arima(y = USGG10YR_diff_ts,
+                         max.p = 10,
+                         max.q = 10)
+
+
+summary(auto_arima)
+```
+
+Uma vez com os modelos em mãos, avaliaremos abaixo os modelos ajustados, isto é, avaliaremos as estatísticas de ajuste de modelos bem como o resíduo destes.
+
+```{r}
+
+resid_aic = arima_aic$residuals %>% as.data.table()
+colnames(resid_aic) = c("AIC_resid")
+resid_aic$date = diff_target_data$date
+resid_aic = resid_aic %>% select(date, everything())
+
+summary(arima_aic)
+ggplot(resid_aic, aes(x=date, y=AIC_resid)) + geom_line() + xlab("")
+
+```
+
+
+```{r}
+
+resid_bic = arima_bic$residuals %>% as.data.table()
+colnames(resid_bic) = c("BIC_resid")
+resid_bic$date = diff_target_data$date
+resid_bic = resid_bic %>% select(date, everything())
+
+summary(arima_bic)
+ggplot(resid_bic, aes(x=date, y=BIC_resid)) + geom_line() + xlab("")
+
+```
+
+
+
+
+
+
 
