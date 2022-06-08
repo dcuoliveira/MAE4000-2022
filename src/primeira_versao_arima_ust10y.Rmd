@@ -266,7 +266,16 @@ auto_arimax <- auto.arima(y = all_data %>% select(USGG10YR_diff) %>% as.ts(),
                           max.q = 10,
                           xreg = all_data %>% select(ECGDUS, ECPIUS) %>% as.ts(),
                           allowmean = TRUE)
+
+resid_x = auto_arimax$residuals %>% as.data.table()
+colnames(resid_x) = c("X_resid")
+resid_x$date = all_data$date
+resid_x = resid_x %>% select(date, everything())
+
 summary(auto_arimax)
+shapiro.test(auto_arimax$residuals)
+ggplot(resid_x, aes(x=date, y=X_resid)) + geom_line() + xlab("")
+ggAcf(auto_arimax$residuals)
 
 ```
 
