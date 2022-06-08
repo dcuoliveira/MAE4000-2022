@@ -19,6 +19,9 @@ library("readr")
 library("tseries")
 library("fpp2")
 library("padr")
+library("TSA")
+library("prophet")
+
 ```
 
 Uma vez com os pacotes carregados, podemos agora carregar e plotar os dados desejados:
@@ -221,6 +224,12 @@ ggplot(resid_bic, aes(x=date, y=BIC_resid)) + geom_line() + xlab("")
 ggAcf(resid_bic$BIC_resid)
 
 ```
+## PROPHET ??
+
+```{r}
+
+```
+
 Como forma de melhorar as propriedades dos modelos apresentados acima, utilizaremos duas variáveis consideradas relevantes na literatura economica, a expectativa de inflação e atividade representada pela mediana das projeções dos principais economistas de mercado para estas variáveis.
 
 Abaixo plotaremos essas variáveis:
@@ -278,7 +287,6 @@ ggplot(resid_x, aes(x=date, y=X_resid)) + geom_line() + xlab("")
 ggAcf(auto_arimax$residuals)
 
 ```
-
 ## FORECAST
 
 ```{r}
