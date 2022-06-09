@@ -1,6 +1,8 @@
 ---
-title: "Modelo ARIMA"
-output: html_notebook
+title: "Trabalho final MAE4000"
+output:
+  html_document:
+    df_print: paged
 ---
 
 Primeiro vamos carregar os pacotes desejados:
@@ -25,6 +27,8 @@ library("prophet")
 ```
 
 Uma vez com os pacotes carregados, podemos agora carregar e plotar os dados desejados:
+
+## desde 2000, dados mensais
 
 ```{r}
 
@@ -54,8 +58,6 @@ head(dados %>% drop_na())
 
 ```
 No código abaixo, podemos ver o gráfico dos vértices ao longo do tempo:
-
-ATENÇÃO, CHECAR DADOS PARA O JUROS DE 2 E 30 ANOS. ESTÃO ESTRANHOS!!
 
 ```{r}
 
@@ -194,6 +196,9 @@ Notamos que tanto em termos de log-verossimilhança quanto AIC, o modelo A tem o
 
 (...)
 
+raiz unitaria?
+coeficientes significativos?
+PACF?
 
 
 ```{r}
@@ -274,7 +279,8 @@ auto_arimax <- auto.arima(y = all_data %>% select(USGG10YR_diff) %>% as.ts(),
                           max.p = 10,
                           max.q = 10,
                           xreg = all_data %>% select(ECGDUS, ECPIUS) %>% as.ts(),
-                          allowmean = TRUE)
+                     \
+                     ]allowmean = TRUE)
 
 resid_x = auto_arimax$residuals %>% as.data.table()
 colnames(resid_x) = c("X_resid")
