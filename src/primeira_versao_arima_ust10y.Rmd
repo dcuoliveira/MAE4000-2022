@@ -8,6 +8,7 @@ output:
 Primeiro vamos carregar os pacotes desejados:
 
 ```{r}
+
 rm(list=ls())
 library("dplyr")
 library("tidyr")
@@ -23,6 +24,7 @@ library("fpp2")
 library("padr")
 library("TSA")
 library("prophet")
+library("ggpubr")
 
 ```
 
@@ -35,7 +37,7 @@ Uma vez com os pacotes carregados, podemos agora carregar e plotar os dados dese
 dados <- read_delim(here("src", "data", "curva_juros_nominal_us.txt"),
                     delim = "\t",
                     escape_double = FALSE, 
-                    trim_ws = TRUE) %>% as.data.table() %>% rename(date=Dates)
+                    trim_ws = TRUE) %>% as.data.table() %>% rename(date=Dates) %>% filter(date>="2000-01-01")
 
 
 weekly_dados = dados %>% mutate(date=ymd(date)) %>% pad() %>%
@@ -48,7 +50,9 @@ weekly_dados = dados %>% mutate(date=ymd(date)) %>% pad() %>%
 Os dados consistêm de alguns vértices da curva de juros nominal dos Estados Unidos. Os vérties do juros nominal de cinco (USGG5YR) e dez (USGG10YR) anos possuem observações desde 1970, já os vértices de dois (USGG2YR) e 30 (USGG30YR) anos começam em 1977.
 
 ```{r}
+
 head(weekly_dados)
+
 ```
 
 
@@ -76,16 +80,20 @@ A inspeção visual da série em questão parece indicar que a média da série 
 
 
 ```{r}
+
 target_data = weekly_dados %>% select(date, `USGG10YR Index`)
 colnames(target_data) = c("date", "USGG10YR")
 
 ggplot(target_data, aes(x=date, y=USGG10YR)) + geom_line() + xlab("")
+
 ```
 
 Como podemos ver, ambos os testes não rejeitam a hipótese nula de raiz unitária, portando precisaremos aplicar alguma trasformação nos dados. 
 
 ```{r}
+
 adf.test(target_data %>% select(USGG10YR) %>% as.ts())
+
 ```
 
 ```{r}
@@ -121,9 +129,7 @@ ggplot(diff_target_data, aes(x=date, y=USGG10YR_diff)) + geom_line() + xlab("")
 ```
 Como primeira forma de identificar o modelo ideal para a série do juros de 10 anos, seguiremos Shumway e Stoffer (2016) e usaremos a função de autocorrelação (ACF) e autocorrelação parcial (PACF) para identificar os parâmetros de um modelo ARMA(p,q).
 
-(NÃO ESTOU SEGURO DESSA PARTE)
-
-Podemos notar que ambas ACF e PACF indicam que o modelo ARMA(4,0) pode ser um bom candidato para modelar o processo gerador de dados.
+Podemos notar, como ambas as ACF e PACF tem padrões similares de um segunda lag significativo, um bom candidato de modelo seria um ARMA(2, 2). Iremos testar esta hipótese de algumas formas diferentes nos passos abaixo.
 
 
 ```{r}
@@ -141,9 +147,9 @@ ggPacf(USGG10YR_diff_ts)
 
 Uma vez com o primeiro especificação de modelo em mãos, usaremos o critério de informação de Akaike (AIC) e bayesiano (BIC) para identifcar se existe um modelo mais parsimonioso para o processo gerador de dados. Avaliaremos ambos os critérios para ARMA(p, q), onde $p \in {1, 2, 3, 4}$ e $q=0$.
 
-Notamos que para o critério AIC, o modelo escolhido é um ARIMA(4, 0, 4), já para o critério BIC o modelo escolhido é o ARMA(1, 0, 1). Estimaremos os dois modelos e continuaremos a análise a partir deles.
+Notamos que para o critério AIC, o modelo escolhido é um ARIMA(4, 0, 3), já para o critério BIC o modelo escolhido é o ARMA(1, 0, 1). Estimaremos os dois modelos e continuaremos a análise a partir deles.
 
-Como terceira forma de escolher o modelo ARMA que melhor se ajusta aos dados, utilizamos a função "auto.arima" do pacote "forecast". Esta função retorna o melhor modelo ARIMA de acordo com o critério de informação disponível. Notamos que o modelo escolhido é consistente com o critério AIC feito anteriormente, um ARIMA(4,0,4).
+Como terceira forma de escolher o modelo ARMA que melhor se ajusta aos dados, utilizamos a função "auto.arima" do pacote "forecast". Esta função retorna o melhor modelo ARIMA de acordo com o critério de informação disponível. Notamos que o modelo escolhido é ainda diferente do escolhido pelos métodos anteriores, sendo ele um ARMA(2, 2).
 
 ```{r}
 
@@ -174,31 +180,30 @@ min(information_df$BIC)
 ```{r}
 
 auto_arima <- auto.arima(y = USGG10YR_diff_ts,
-                         max.p = 10,
-                         max.q = 10)
+                         max.p = 4,
+                         max.q = 4,
+                         allowmean = TRUE)
 
 
 summary(auto_arima)
+
 ```
 
 ```{r}
 
-arima_aic <- arima(USGG10YR_diff_ts, order=c(4, 0, 4))
+arima_aic <- arima(USGG10YR_diff_ts, order=c(4, 0, 3))
 arima_bic <- arima(USGG10YR_diff_ts, order=c(1, 0, 1))
+arima_auto <- arima(USGG10YR_diff_ts, order=c(2, 0, 2))
 
 ```
 
 
 
-Uma vez com os modelos em mãos, avaliaremos abaixo os modelos ajustados, isto é, avaliaremos as estatísticas de ajuste de modelos bem como o resíduo destes. Para fins de simplificação, chamaremos o modelo ARIMA(4, 1, 4) de modelo A e o modelo ARIMA (1, 1, 1) de modelo B. 
+Uma vez com os modelos em mãos, avaliaremos abaixo os modelos ajustados, isto é, avaliaremos as estatísticas de ajuste de modelos bem como o resíduo destes. Para fins de simplificação, chamaremos o modelo ARMA(4, 4) de modelo A, o modelo ARIMA (1, 1) de modelo B e, por fim, o modelo ARMA(2, 2) de modelo C.
 
 Notamos que tanto em termos de log-verossimilhança quanto AIC, o modelo A tem o melhor ajuste. Além disso, ambos os resíduos apresentam problemas. Os resíduos de ambas as séries rejeitam fortemente a hipótese nula de normalidade dos dados. Outro ponto de atenção é que ambos os resíduos apresentam lags significativos na ACF.
 
 (...)
-
-raiz unitaria?
-coeficientes significativos?
-PACF?
 
 
 ```{r}
@@ -209,9 +214,14 @@ resid_aic$date = diff_target_data$date
 resid_aic = resid_aic %>% select(date, everything())
 
 summary(arima_aic)
-shapiro.test(resid_aic$AIC_resid)
+coefs_aic <- append(1, as.vector(arima_aic$coef * -1)) 
+roots_aic <- polyroot(coefs_aic) %>% as.data.table()
+roots_aic %>% mutate(coef_name=names(arima_aic$coef), t_ratio=arima_aic$coef / sqrt(diag(vcov(arima_aic)))) %>%
+  rename(roots=x) %>% select(coef_name, everything())
+ggqqplot(arima_aic$residuals)
 ggplot(resid_aic, aes(x=date, y=AIC_resid)) + geom_line() + xlab("")
 ggAcf(resid_aic$AIC_resid)
+ggPacf(resid_aic$AIC_resid)
 
 ```
 
@@ -224,14 +234,34 @@ resid_bic$date = diff_target_data$date
 resid_bic = resid_bic %>% select(date, everything())
 
 summary(arima_bic)
-shapiro.test(resid_bic$BIC_resid)
+coefs_bic <- append(1, as.vector(arima_bic$coef * -1)) 
+roots_bic <- polyroot(coefs_bic) %>% as.data.table()
+roots_bic %>% mutate(coef_name=names(arima_bic$coef), t_ratio=arima_bic$coef / sqrt(diag(vcov(arima_bic)))) %>%
+  rename(roots=x) %>% select(coef_name, everything())
+ggqqplot(arima_bic$residuals)
 ggplot(resid_bic, aes(x=date, y=BIC_resid)) + geom_line() + xlab("")
 ggAcf(resid_bic$BIC_resid)
+ggPacf(resid_bic$BIC_resid)
 
 ```
-## PROPHET ??
+
 
 ```{r}
+
+resid_auto = arima_auto$residuals %>% as.data.table()
+colnames(resid_auto) = c("AIC_auto")
+resid_auto$date = diff_target_data$date
+resid_auto = resid_auto %>% select(date, everything())
+
+summary(arima_auto)
+coefs_auto <- append(1, as.vector(arima_auto$coef * -1)) 
+roots_auto <- polyroot(coefs_auto) %>% as.data.table()
+roots_auto %>% mutate(coef_name=names(arima_auto$coef), t_ratio=arima_auto$coef / sqrt(diag(vcov(arima_auto)))) %>%
+  rename(roots=x) %>% select(coef_name, everything())
+ggqqplot(arima_auto$residuals)
+ggplot(resid_auto, aes(x=date, y=AIC_auto)) + geom_line() + xlab("")
+ggAcf(resid_auto$AIC_auto)
+ggPacf(resid_auto$AIC_auto)
 
 ```
 
